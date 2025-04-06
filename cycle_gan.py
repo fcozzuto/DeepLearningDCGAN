@@ -165,13 +165,14 @@ def training_loop(dataloader_X, dataloader_Y, opts):
     iter_X = iter(dataloader_X)
     iter_Y = iter(dataloader_Y)
 
-
     # Get some fixed data from domains X and Y for sampling. These are images that are held
     # constant throughout training, that allow us to inspect the model's performance.
     fixed_X = utils.to_var(iter_X.next()[0])
     fixed_Y = utils.to_var(iter_Y.next()[0])
 
     iter_per_epoch = min(len(iter_X), len(iter_Y))
+
+    criterion = torch.nn.BCELoss()
 
     for iteration in range(1, opts.train_iters+1):
 
@@ -186,6 +187,10 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         images_Y, labels_Y = iter_Y.next()
         images_Y, labels_Y = utils.to_var(images_Y), utils.to_var(labels_Y).long().squeeze()
 
+        batch_size = images_X.size(0)
+        real_labels = torch.ones(batch_size, 1).to(images_X.device)
+        fake_labels = torch.zeros(batch_size, 1).to(images_X.device)
+
 
         # ============================================
         #            TRAIN THE DISCRIMINATORS
@@ -199,8 +204,8 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         d_optimizer.zero_grad()
 
         # 1. Compute the discriminator losses on real images
-        D_X_loss =
-        D_Y_loss =
+        D_X_loss = criterion(D_X(images_X), real_labels)
+        D_Y_loss = criterion(D_Y(images_Y), real_labels)
 
         d_real_loss = D_X_loss + D_Y_loss
         d_real_loss.backward()
@@ -211,22 +216,23 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         d_optimizer.zero_grad()
 
         # 2. Generate fake images that look like domain X based on real images in domain Y
-        fake_X =
+        fake_X = G_YtoX(images_Y)
 
-        # 3. Compute the loss for D_X
+        # 3. Compute the loss for D_X on fake images
+        D_X_loss_fake = criterion(D_X(fake_X.detach()), fake_labels)
 
         # 4. Generate fake images that look like domain Y based on real images in domain X
-        fake_Y =
+        fake_Y = G_XtoY(images_X)
+        
+        # 5. Compute the loss for D_Y on fake images
+        D_Y_loss_fake = criterion(D_Y(fake_Y.detach()), fake_labels)
 
-        # 5. Compute the loss for D_Y
-        D_Y_loss =
-
-        d_fake_loss = D_X_loss + D_Y_loss
+        d_fake_loss = D_X_loss_fake + D_Y_loss_fake
         if iteration % 2 == 0:
             d_fake_loss.backward()
             d_optimizer.step()
-        logger.add_scalar('D/XY/fake', D_X_loss, iteration)
-        logger.add_scalar('D/YX/fake', D_Y_loss, iteration)
+        logger.add_scalar('D/XY/fake', D_X_loss_fake, iteration)
+        logger.add_scalar('D/YX/fake', D_Y_loss_fake, iteration)
 
 
         # =========================================
@@ -240,16 +246,16 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         g_optimizer.zero_grad()
 
         # 1. Generate fake images that look like domain X based on real images in domain Y
-        fake_X =
+        fake_X = G_YtoX(images_Y)
 
         # 2. Compute the generator loss based on domain X
-        g_loss =
+        g_loss = criterion(D_X(fake_X), real_labels)
         logger.add_scalar('G/XY/fake', g_loss, iteration)
 
         if opts.use_cycle_consistency_loss:
             reconstructed_Y = G_XtoY(fake_X)
             # 3. Compute the cycle consistency loss (the reconstruction loss)
-            cycle_consistency_loss =
+            cycle_consistency_loss = torch.mean(torch.abs(reconstructed_Y - images_Y))
             g_loss += opts.lambda_cycle * cycle_consistency_loss
             logger.add_scalar('G/XY/cycle', opts.lambda_cycle * cycle_consistency_loss, iteration)
 
@@ -268,13 +274,13 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         fake_Y = G_XtoY(images_X)
 
         # 2. Compute the generator loss based on domain Y
-        g_loss =
+        g_loss = criterion(D_Y(fake_Y), real_labels)
         logger.add_scalar('G/YX/fake', g_loss, iteration)
 
         if opts.use_cycle_consistency_loss:
             reconstructed_X = G_YtoX(fake_Y)
             # 3. Compute the cycle consistency loss (the reconstruction loss)
-            cycle_consistency_loss =
+            cycle_consistency_loss = torch.mean(torch.abs(reconstructed_X - images_X))
             g_loss += opts.lambda_cycle * cycle_consistency_loss
             logger.add_scalar('G/YX/cycle', cycle_consistency_loss, iteration)
 

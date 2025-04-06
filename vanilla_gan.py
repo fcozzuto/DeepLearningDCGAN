@@ -148,6 +148,8 @@ def training_loop(train_dataloader, opts):
     # Generate fixed noise for sampling from the generator
     fixed_noise = sample_noise(opts.noise_size)  # batch_size x noise_size x 1 x 1
 
+    criterion = torch.nn.BCELoss()
+
     iteration = 1
 
     total_train_iters = opts.num_epochs * len(train_dataloader)
@@ -167,18 +169,20 @@ def training_loop(train_dataloader, opts):
 
             # FILL THIS IN
             # 1. Compute the discriminator loss on real images
-            D_real_loss = 
+            real_labels = torch.ones(real_images.size(0), 1).to(real_images.device)
+            D_real_loss = criterion(D(real_images), real_labels)
 
             # 2. Sample noise
             noise = sample_noise(opts.noise_size)
 
             # 3. Generate fake images from the noise
-            fake_images =
+            fake_images = G(noise)
 
             # 4. Compute the discriminator loss on the fake images
-            D_fake_loss =
+            fake_labels = torch.zeros(fake_images.size(0), 1).to(fake_images.device)
+            D_fake_loss = criterion(D(fake_images.detach()), fake_labels)
 
-            D_total_loss =
+            D_total_loss = D_real_loss + D_fake_loss
             if iteration % 2 == 0:
                 D_total_loss.backward()
                 d_optimizer.step()
@@ -191,13 +195,13 @@ def training_loop(train_dataloader, opts):
 
             # FILL THIS IN
             # 1. Sample noise
-            noise =
+            noise = sample_noise(opts.noise_size)
 
             # 2. Generate fake images from the noise
-            fake_images =
+            fake_images = G(noise)
 
             # 3. Compute the generator loss
-            G_loss =
+            G_loss = criterion(D(fake_images), real_labels)
 
             G_loss.backward()
             g_optimizer.step()
