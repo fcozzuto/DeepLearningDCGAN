@@ -48,18 +48,18 @@ def conv(in_channels, out_channels, kernel_size, stride=2, padding=1, norm='batc
 
 
 class DCGenerator(nn.Module):
-    def __init__(self, noise_size=100, conv_dim=64):
+    def __init__(self, noise_size, conv_dim):
         super(DCGenerator, self).__init__()
 
         ###########################################
         ##   FILL THIS IN: CREATE ARCHITECTURE   ##
         ###########################################
 
-        self.deconv1 = deconv(in_channels=noise_size, out_channels=conv_dim * 8, kernel_size=4, stride=1, padding=0, norm='batch')
-        self.deconv2 = deconv(in_channels=conv_dim * 8, out_channels=conv_dim * 4, kernel_size=4, stride=2, padding=1, norm='batch')
-        self.deconv3 = deconv(in_channels=conv_dim * 4, out_channels=conv_dim * 2, kernel_size=4, stride=2, padding=1, norm='batch')
-        self.deconv4 = deconv(in_channels=conv_dim * 2, out_channels=conv_dim, kernel_size=4, stride=2, padding=1, norm='batch')
-        self.deconv5 = deconv(in_channels=conv_dim, out_channels=3, kernel_size=4, stride=2, padding=1, norm=None)
+        self.deconv1 = deconv(noise_size, conv_dim * 8, kernel_size=4, stride=1, padding=0, norm='batch')
+        self.deconv2 = deconv(conv_dim * 8, conv_dim * 4, kernel_size=4, stride=2, padding=1, norm='batch')
+        self.deconv3 = deconv(conv_dim * 4, conv_dim * 2, kernel_size=4, stride=2, padding=1, norm='batch')
+        self.deconv4 = deconv(conv_dim * 2, conv_dim, kernel_size=4, stride=2, padding=1, norm='batch')
+        self.deconv5 = deconv(conv_dim, 3, kernel_size=3, stride=1, padding=1, norm=None)
 
     def forward(self, z):
         """Generates an image given a sample of random noise.
@@ -73,16 +73,14 @@ class DCGenerator(nn.Module):
                 out: BS x channels x image_width x image_height  -->  16x3x32x32
         """
 
-
         ###########################################
         ##   FILL THIS IN: FORWARD PASS   ##
         ###########################################
-
         out = F.relu(self.deconv1(z))
         out = F.relu(self.deconv2(out))
         out = F.relu(self.deconv3(out))
         out = F.relu(self.deconv4(out))
-        out = torch.tanh(self.deconv5(out))
+        out = F.tanh(self.deconv5(out))
         return out
 
 
@@ -101,7 +99,7 @@ class CycleGenerator(nn.Module):
     """Defines the architecture of the generator network.
        Note: Both generators G_XtoY and G_YtoX have the same architecture in this assignment.
     """
-    def __init__(self, conv_dim=64, n_res_blocks=6, init_zero_weights=False, norm='batch'):
+    def __init__(self, conv_dim=64, init_zero_weights=False, norm='batch'):
         super(CycleGenerator, self).__init__()
 
         ###########################################
@@ -109,20 +107,22 @@ class CycleGenerator(nn.Module):
         ###########################################
 
         # 1. Define the encoder part of the generator (that extracts features from the input image)
-        self.conv1 = conv(in_channels=3, out_channels=conv_dim, kernel_size=7, stride=1, padding=3, norm='instance')
-        self.conv2 = conv(in_channels=conv_dim, out_channels=conv_dim * 2, kernel_size=3, stride=2, padding=1, norm='instance')
-        self.conv3 = conv(in_channels=conv_dim * 2, out_channels=conv_dim * 4, kernel_size=3, stride=2, padding=1, norm='instance')
+        self.conv1 = conv(3, conv_dim, kernel_size=7, stride=1, padding=3, norm=norm)
+        self.conv2 = conv(conv_dim, conv_dim * 2, kernel_size=3, stride=2, padding=1, norm=norm)
 
         # 2. Define the transformation part of the generator
-        res_blocks = []
-        for _ in range(n_res_blocks):
-            res_blocks.append(ResnetBlock(conv_dim * 4))
-        self.res_blocks = nn.Sequential(*res_blocks)
+        self.resnet_block = nn.Sequential(
+            ResnetBlock(conv_dim * 2, norm),
+            ResnetBlock(conv_dim * 2, norm),
+            ResnetBlock(conv_dim * 2, norm)
+        )
 
         # 3. Define the decoder part of the generator (that builds up the output image from features)
-        self.deconv1 = deconv(in_channels=conv_dim * 4, out_channels=conv_dim * 2, kernel_size=3, stride=2, padding=1, output_padding=1, norm='instance')
-        self.deconv2 = deconv(in_channels=conv_dim * 2, out_channels=conv_dim, kernel_size=3, stride=2, padding=1, output_padding=1, norm='instance')
-        self.deconv3 = deconv(in_channels=conv_dim, out_channels=3, kernel_size=7, stride=1, padding=3, norm=None)
+        self.deconv1 = deconv(conv_dim * 2, conv_dim, kernel_size=4, stride=2, padding=1, norm=norm)
+        self.deconv2 = nn.Sequential(
+            nn.Conv2d(conv_dim, 3, kernel_size=7, stride=1, padding=3, bias=False),
+            nn.Tanh()
+        )
 
     def forward(self, x):
         """Generates an image conditioned on an input image.
@@ -138,13 +138,12 @@ class CycleGenerator(nn.Module):
 
         out = F.relu(self.conv1(x))
         out = F.relu(self.conv2(out))
-        out = F.relu(self.conv3(out))
 
-        out = self.res_blocks(out)
+        out = F.relu(self.resnet_block(out))
 
         out = F.relu(self.deconv1(out))
-        out = F.relu(self.deconv2(out))
-        out = torch.tanh(self.deconv3(out))
+        out = F.tanh(self.deconv2(out))
+
         return out
 
 
@@ -159,23 +158,20 @@ class DCDiscriminator(nn.Module):
         ##   FILL THIS IN: CREATE ARCHITECTURE   ##
         ###########################################
 
-        self.conv1 = conv(in_channels=3, out_channels=conv_dim, kernel_size=4, stride=2, padding=1, norm=None)
-        self.conv2 = conv(in_channels=conv_dim, out_channels=conv_dim * 2, kernel_size=4, stride=2, padding=1, norm='batch')
-        self.conv3 = conv(in_channels=conv_dim * 2, out_channels=conv_dim * 4, kernel_size=4, stride=2, padding=1, norm='batch')
-        self.conv4 = conv(in_channels=conv_dim * 4, out_channels=conv_dim * 8, kernel_size=4, stride=2, padding=1, norm='batch')
-        self.fc = nn.Linear(conv_dim * 8 * 4 * 4, 1)
+        self.conv1 = conv(3, conv_dim, kernel_size=4, stride=2, padding=1, norm=None)
+        self.conv2 = conv(conv_dim, conv_dim * 2, kernel_size=4, stride=2, padding=1, norm=norm)
+        self.conv3 = conv(conv_dim * 2, conv_dim * 4, kernel_size=4, stride=2, padding=1, norm=norm)
+        self.conv4 = conv(conv_dim * 4, conv_dim * 8, kernel_size=4, stride=2, padding=1, norm=norm)
+        self.conv5 = nn.Conv2d(conv_dim * 8, 1, kernel_size=4, stride=1, padding=0, bias=False)
 
     def forward(self, x):
-        out = F.leaky_relu(self.conv1(x), 0.2)
-        out = F.leaky_relu(self.conv2(out), 0.2)
-        out = F.leaky_relu(self.conv3(out), 0.2)
-        out = F.leaky_relu(self.conv4(out), 0.2)
+        out = F.relu(self.conv1(x))
 
         ###########################################
         ##   FILL THIS IN: FORWARD PASS   ##
         ###########################################
-
-        out = out.view(out.size(0), -1)
-        out = torch.sigmoid(self.fc(out))
+        out = F.relu(self.conv2(out))
+        out = F.relu(self.conv3(out))
+        out = F.relu(self.conv4(out))
+        out = self.conv5(out).squeeze()
         return out
-
