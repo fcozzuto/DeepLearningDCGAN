@@ -169,7 +169,7 @@ def training_loop(train_dataloader, opts):
 
             # FILL THIS IN
             # 1. Compute the discriminator loss on real images
-            real_labels = torch.ones(real_images.size(0), 1).to(real_images.device)
+            real_labels = torch.ones(real_images.size(0)).to(real_images.device)
             D_real_loss = criterion(D(real_images), real_labels)
 
             # 2. Sample noise
@@ -179,7 +179,7 @@ def training_loop(train_dataloader, opts):
             fake_images = G(noise)
 
             # 4. Compute the discriminator loss on the fake images
-            fake_labels = torch.zeros(fake_images.size(0), 1).to(fake_images.device)
+            fake_labels = torch.zeros(real_images.size(0)).to(real_images.device)
             D_fake_loss = criterion(D(fake_images.detach()), fake_labels)
 
             D_total_loss = D_real_loss + D_fake_loss
