@@ -41,15 +41,14 @@ def get_data_loader(data_path, opts):
     if opts.data_aug == 'basic':
         transform = basic_transform
     elif opts.data_aug == 'deluxe':
-        # todo: add your code here: below are some ideas for your reference
         load_size = int(1.1 * opts.image_size)
+        osize = [load_size, load_size]
         transform = transforms.Compose([
-        transforms.Resize((load_size, load_size), Image.BICUBIC), # Use tuple for size
-        transforms.RandomCrop(opts.image_size),
-        transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1), # Add ColorJitter
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            transforms.Resize(osize, Image.BICUBIC),
+            transforms.RandomCrop(opts.image_size),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ])
         pass
 

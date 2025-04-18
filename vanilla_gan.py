@@ -14,6 +14,9 @@ import os
 import warnings
 
 import imageio
+import math
+import numpy as np
+np.math = math
 
 warnings.filterwarnings("ignore")
 
@@ -102,6 +105,7 @@ def save_samples(G, fixed_noise, iteration, opts):
     generated_images = utils.to_data(generated_images)
 
     grid = create_image_grid(generated_images)
+    grid = ((grid + 1) * 127.5).clip(0, 255).astype('uint8')
 
     # merged = merge_images(X, fake_Y, opts)
     path = os.path.join(opts.sample_dir, 'sample-{:06d}.png'.format(iteration))
@@ -111,6 +115,7 @@ def save_samples(G, fixed_noise, iteration, opts):
 
 def save_images(images, iteration, opts, name):
     grid = create_image_grid(utils.to_data(images))
+    grid = ((grid + 1) * 127.5).clip(0, 255).astype('uint8')
 
     path = os.path.join(opts.sample_dir, '{:s}-{:06d}.png'.format(name, iteration))
     imageio.imwrite(path, grid)
@@ -145,10 +150,11 @@ def training_loop(train_dataloader, opts):
     g_optimizer = optim.Adam(G.parameters(), opts.lr, [opts.beta1, opts.beta2])
     d_optimizer = optim.Adam(D.parameters(), opts.lr, [opts.beta1, opts.beta2])
 
+    # Define the loss function
+    criterion = torch.nn.BCELoss()
+
     # Generate fixed noise for sampling from the generator
     fixed_noise = sample_noise(opts.noise_size)  # batch_size x noise_size x 1 x 1
-
-    criterion = torch.nn.BCELoss()
 
     iteration = 1
 
@@ -169,8 +175,7 @@ def training_loop(train_dataloader, opts):
 
             # FILL THIS IN
             # 1. Compute the discriminator loss on real images
-            real_labels = torch.ones(real_images.size(0)).to(real_images.device)
-            D_real_loss = criterion(D(real_images), real_labels)
+            D_real_loss = criterion(D(real_images), torch.ones(real_images.size(0)).to(real_images.device))
 
             # 2. Sample noise
             noise = sample_noise(opts.noise_size)
@@ -179,8 +184,7 @@ def training_loop(train_dataloader, opts):
             fake_images = G(noise)
 
             # 4. Compute the discriminator loss on the fake images
-            fake_labels = torch.zeros(real_images.size(0)).to(real_images.device)
-            D_fake_loss = criterion(D(fake_images.detach()), fake_labels)
+            D_fake_loss = criterion(D(fake_images.detach()), torch.zeros(fake_images.size(0)).to(fake_images.device))
 
             D_total_loss = D_real_loss + D_fake_loss
             if iteration % 2 == 0:
@@ -201,7 +205,7 @@ def training_loop(train_dataloader, opts):
             fake_images = G(noise)
 
             # 3. Compute the generator loss
-            G_loss = criterion(D(fake_images), real_labels)
+            G_loss = criterion(D(fake_images), torch.ones(fake_images.size(0)).to(fake_images.device))
 
             G_loss.backward()
             g_optimizer.step()
@@ -280,9 +284,16 @@ if __name__ == '__main__':
     batch_size = opts.batch_size
     opts.sample_dir = os.path.join('output/', opts.sample_dir,
                                    '%s_%s' % (os.path.basename(opts.data), opts.data_aug))
+    # if os.path.exists(opts.sample_dir):
+    #    cmd = 'rm %s/*' % opts.sample_dir
+    #    os.system(cmd)
+
     if os.path.exists(opts.sample_dir):
-        cmd = 'rm %s/*' % opts.sample_dir
-        os.system(cmd)
+        import glob
+        files = glob.glob(os.path.join(opts.sample_dir, '*'))
+        for f in files:
+            os.remove(f)
+            
     logger = SummaryWriter(opts.sample_dir)
     print(opts)
     main(opts)

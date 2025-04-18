@@ -23,6 +23,7 @@ import warnings
 
 import imageio
 from torch.utils.tensorboard import SummaryWriter
+import torch.nn.functional as F
 
 warnings.filterwarnings("ignore")
 
@@ -135,14 +136,18 @@ def save_samples(iteration, fixed_Y, fixed_X, G_YtoX, G_XtoY, opts):
     X, fake_X = utils.to_data(fixed_X), utils.to_data(fake_X)
     Y, fake_Y = utils.to_data(fixed_Y), utils.to_data(fake_Y)
 
-    merged = merge_images(X, fake_Y, opts)
+    merged_XY = merge_images(X, fake_Y, opts)
+    merged_XY = ((merged_XY + 1) * 127.5).clip(0, 255).astype('uint8')
+
     path = os.path.join(opts.sample_dir, 'sample-{:06d}-X-Y.png'.format(iteration))
-    imageio.imwrite(path, merged)
+    imageio.imwrite(path, merged_XY)
     print('Saved {}'.format(path))
 
-    merged = merge_images(Y, fake_X, opts)
+    merged_YX = merge_images(Y, fake_X, opts)
+    merged_YX = ((merged_YX + 1) * 127.5).clip(0, 255).astype('uint8')
+
     path = os.path.join(opts.sample_dir, 'sample-{:06d}-Y-X.png'.format(iteration))
-    imageio.imwrite(path, merged)
+    imageio.imwrite(path, merged_YX)
     print('Saved {}'.format(path))
 
 
@@ -165,14 +170,13 @@ def training_loop(dataloader_X, dataloader_Y, opts):
     iter_X = iter(dataloader_X)
     iter_Y = iter(dataloader_Y)
 
+
     # Get some fixed data from domains X and Y for sampling. These are images that are held
     # constant throughout training, that allow us to inspect the model's performance.
-    fixed_X = utils.to_var(iter_X.next()[0])
-    fixed_Y = utils.to_var(iter_Y.next()[0])
+    fixed_X = utils.to_var(next(iter_X)[0])
+    fixed_Y = utils.to_var(next(iter_Y)[0])
 
     iter_per_epoch = min(len(iter_X), len(iter_Y))
-
-    criterion = torch.nn.BCELoss()
 
     for iteration in range(1, opts.train_iters+1):
 
@@ -181,15 +185,11 @@ def training_loop(dataloader_X, dataloader_Y, opts):
             iter_X = iter(dataloader_X)
             iter_Y = iter(dataloader_Y)
 
-        images_X, labels_X = iter_X.next()
+        images_X, labels_X = next(iter_X)
         images_X, labels_X = utils.to_var(images_X), utils.to_var(labels_X).long().squeeze()
 
-        images_Y, labels_Y = iter_Y.next()
+        images_Y, labels_Y = next(iter_Y)
         images_Y, labels_Y = utils.to_var(images_Y), utils.to_var(labels_Y).long().squeeze()
-
-        batch_size = images_X.size(0)
-        real_labels = torch.ones(batch_size, 1).to(images_X.device)
-        fake_labels = torch.zeros(batch_size, 1).to(images_X.device)
 
 
         # ============================================
@@ -204,8 +204,9 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         d_optimizer.zero_grad()
 
         # 1. Compute the discriminator losses on real images
-        D_X_loss = criterion(D_X(images_X), real_labels)
-        D_Y_loss = criterion(D_Y(images_Y), real_labels)
+        D_X_loss = F.binary_cross_entropy(D_X(images_X), torch.ones_like(D_X(images_X)))  # Real image loss for D_X
+        D_Y_loss = F.binary_cross_entropy(D_Y(images_Y), torch.ones_like(D_Y(images_Y)))  # Real image loss for D_Y
+
 
         d_real_loss = D_X_loss + D_Y_loss
         d_real_loss.backward()
@@ -218,21 +219,23 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         # 2. Generate fake images that look like domain X based on real images in domain Y
         fake_X = G_YtoX(images_Y)
 
-        # 3. Compute the loss for D_X on fake images
-        D_X_loss_fake = criterion(D_X(fake_X.detach()), fake_labels)
+        # 3. Compute the loss for D_X
+        D_X_fake = D_X(fake_X)
+        D_X_loss = F.binary_cross_entropy(D_X_fake, torch.zeros_like(D_X_fake))
 
         # 4. Generate fake images that look like domain Y based on real images in domain X
         fake_Y = G_XtoY(images_X)
-        
-        # 5. Compute the loss for D_Y on fake images
-        D_Y_loss_fake = criterion(D_Y(fake_Y.detach()), fake_labels)
 
-        d_fake_loss = D_X_loss_fake + D_Y_loss_fake
+        # 5. Compute the loss for D_Y
+        D_Y_loss = F.binary_cross_entropy(D_Y(fake_Y), torch.zeros_like(D_Y(fake_Y)))  # Fake image loss for D_Y
+
+
+        d_fake_loss = D_X_loss + D_Y_loss
         if iteration % 2 == 0:
             d_fake_loss.backward()
             d_optimizer.step()
-        logger.add_scalar('D/XY/fake', D_X_loss_fake, iteration)
-        logger.add_scalar('D/YX/fake', D_Y_loss_fake, iteration)
+        logger.add_scalar('D/XY/fake', D_X_loss, iteration)
+        logger.add_scalar('D/YX/fake', D_Y_loss, iteration)
 
 
         # =========================================
@@ -249,13 +252,13 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         fake_X = G_YtoX(images_Y)
 
         # 2. Compute the generator loss based on domain X
-        g_loss = criterion(D_X(fake_X), real_labels)
+        g_loss = F.binary_cross_entropy(D_X(fake_X), torch.ones_like(D_X(fake_X)))
         logger.add_scalar('G/XY/fake', g_loss, iteration)
 
         if opts.use_cycle_consistency_loss:
             reconstructed_Y = G_XtoY(fake_X)
             # 3. Compute the cycle consistency loss (the reconstruction loss)
-            cycle_consistency_loss = torch.mean(torch.abs(reconstructed_Y - images_Y))
+            cycle_consistency_loss = torch.mean(torch.abs(images_Y - reconstructed_Y))
             g_loss += opts.lambda_cycle * cycle_consistency_loss
             logger.add_scalar('G/XY/cycle', opts.lambda_cycle * cycle_consistency_loss, iteration)
 
@@ -274,13 +277,13 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         fake_Y = G_XtoY(images_X)
 
         # 2. Compute the generator loss based on domain Y
-        g_loss = criterion(D_Y(fake_Y), real_labels)
+        g_loss = F.binary_cross_entropy(D_Y(fake_Y), torch.ones_like(D_Y(fake_Y))) 
         logger.add_scalar('G/YX/fake', g_loss, iteration)
 
         if opts.use_cycle_consistency_loss:
             reconstructed_X = G_YtoX(fake_Y)
             # 3. Compute the cycle consistency loss (the reconstruction loss)
-            cycle_consistency_loss = torch.mean(torch.abs(reconstructed_X - images_X))
+            cycle_consistency_loss = torch.mean(torch.abs(images_X - reconstructed_X))
             g_loss += opts.lambda_cycle * cycle_consistency_loss
             logger.add_scalar('G/YX/cycle', cycle_consistency_loss, iteration)
 
@@ -385,9 +388,15 @@ if __name__ == '__main__':
     if opts.use_cycle_consistency_loss:
         opts.sample_dir += '_cycle'
 
+    # if os.path.exists(opts.sample_dir):
+    #    cmd = 'rm %s/*' % opts.sample_dir
+    #    os.system(cmd)
+
     if os.path.exists(opts.sample_dir):
-        cmd = 'rm %s/*' % opts.sample_dir
-        os.system(cmd)
+        import glob
+        files = glob.glob(os.path.join(opts.sample_dir, '*'))
+        for f in files:
+            os.remove(f)
 
     logger = SummaryWriter(opts.sample_dir)
 
