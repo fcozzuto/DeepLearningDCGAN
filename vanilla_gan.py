@@ -27,6 +27,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
+from torchvision.utils import make_grid
 
 # Local imports
 import utils
@@ -213,14 +214,24 @@ def training_loop(train_dataloader, opts):
 
             # Print the log info
             if iteration % opts.log_step == 0:
+                logger.add_scalar('D/real_loss', D_real_loss.item(), iteration)
+                logger.add_scalar('D/fake_loss', D_fake_loss.item(), iteration)
+                logger.add_scalar('G/loss', G_loss.item(), iteration)
                 print('Iteration [{:4d}/{:4d}] | D_real_loss: {:6.4f} | D_fake_loss: {:6.4f} | G_loss: {:6.4f}'.format(
                        iteration, total_train_iters, D_real_loss.item(), D_fake_loss.item(), G_loss.item()))
-            # todo: add fake loss, real loss, G loss to tensorboard
 
             # Save the generated samples
             if iteration % opts.sample_every == 0:
                 save_samples(G, fixed_noise, iteration, opts)
                 save_images(real_images, iteration, opts, 'real')
+
+                #log images to TensorBoard
+                from torchvision.utils import make_grid
+                grid_fake = make_grid(G(fixed_noise).detach().cpu(), nrow=int(math.sqrt(opts.batch_size)), normalize=True, value_range=(-1, 1))
+                logger.add_image('Generated_Images', grid_fake, iteration)
+
+                grid_real = make_grid(real_images.cpu(), nrow=int(math.sqrt(opts.batch_size)), normalize=True, value_range=(-1, 1))
+                logger.add_image('Real_Images', grid_real, iteration)
 
             # Save the model parameters
             if iteration % opts.checkpoint_every == 0:

@@ -24,6 +24,7 @@ import warnings
 import imageio
 from torch.utils.tensorboard import SummaryWriter
 import torch.nn.functional as F
+from torchvision.utils import make_grid
 
 warnings.filterwarnings("ignore")
 
@@ -149,6 +150,16 @@ def save_samples(iteration, fixed_Y, fixed_X, G_YtoX, G_XtoY, opts):
     path = os.path.join(opts.sample_dir, 'sample-{:06d}-Y-X.png'.format(iteration))
     imageio.imwrite(path, merged_YX)
     print('Saved {}'.format(path))
+
+    # --- Add logging of generated images to TensorBoard ---
+    # Log X -> Y transformation
+    grid_XY = make_grid(torch.cat([torch.Tensor(fixed_X).cpu().float(), torch.Tensor(fake_Y).cpu().float()], dim=0), nrow=int(np.sqrt(opts.batch_size)), normalize=True, value_range=(-1, 1))
+    logger.add_image('Generated_XY', grid_XY, iteration)
+
+    # Log Y -> X transformation
+    grid_YX = make_grid(torch.cat([torch.Tensor(fixed_Y).cpu().float(), torch.Tensor(fake_X).cpu().float()], dim=0), nrow=int(np.sqrt(opts.batch_size)), normalize=True, value_range=(-1, 1))
+    logger.add_image('Generated_YX', grid_YX, iteration)
+    # --- End of TensorBoard image logging ---
 
 
 def training_loop(dataloader_X, dataloader_Y, opts):
@@ -299,6 +310,9 @@ def training_loop(dataloader_X, dataloader_Y, opts):
 
         # Save the generated samples
         if iteration % opts.sample_every == 0:
+            save_samples(iteration, fixed_Y, fixed_X, G_YtoX, G_XtoY, opts)
+
+        if iteration in [400, 600]:
             save_samples(iteration, fixed_Y, fixed_X, G_YtoX, G_XtoY, opts)
 
         # Save the model parameters
