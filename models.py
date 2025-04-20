@@ -59,7 +59,10 @@ class DCGenerator(nn.Module):
         self.deconv2 = deconv(conv_dim * 8, conv_dim * 4, kernel_size=4, stride=2, padding=1, norm='batch')
         self.deconv3 = deconv(conv_dim * 4, conv_dim * 2, kernel_size=4, stride=2, padding=1, norm='batch')
         self.deconv4 = deconv(conv_dim * 2, conv_dim, kernel_size=4, stride=2, padding=1, norm='batch')
-        self.deconv5 = deconv(conv_dim, 3, kernel_size=3, stride=1, padding=1, norm=None)   
+        self.deconv5 = nn.Sequential(
+            nn.ConvTranspose2d(conv_dim, 3, kernel_size=4, stride=2, padding=1),
+            nn.Tanh()
+        )  
 
     def forward(self, z):
         """Generates an image given a sample of random noise.
@@ -109,20 +112,20 @@ class CycleGenerator(nn.Module):
         ###########################################
 
         # 1. Define the encoder part of the generator (that extracts features from the input image)
-        self.conv1 = conv(3, conv_dim, kernel_size=7, stride=1, padding=3, norm=norm)
+        self.pad = nn.ReflectionPad2d(3)
+        self.conv1 = nn.Sequential(self.pad, conv(3, conv_dim, kernel_size=7, stride=1, padding=0, norm=norm))
         self.conv2 = conv(conv_dim, conv_dim * 2, kernel_size=3, stride=2, padding=1, norm=norm)
 
         # 2. Define the transformation part of the generator
         self.resnet_block = nn.Sequential(
-            ResnetBlock(conv_dim * 2, norm),
-            ResnetBlock(conv_dim * 2, norm),
-            ResnetBlock(conv_dim * 2, norm)
+            *[ResnetBlock(conv_dim * 2, norm) for _ in range(6)]
         )
 
         # 3. Define the decoder part of the generator (that builds up the output image from features)
         self.deconv1 = deconv(conv_dim * 2, conv_dim, kernel_size=4, stride=2, padding=1, norm=norm)
         self.deconv2 = nn.Sequential(
-            nn.Conv2d(conv_dim, 3, kernel_size=7, stride=1, padding=3, bias=False),
+            nn.ReflectionPad2d(3),
+            nn.Conv2d(conv_dim, 3, kernel_size=7, stride=1, padding=0, bias=False),
             nn.Tanh()
         )
 

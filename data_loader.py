@@ -47,6 +47,11 @@ def get_data_loader(data_path, opts):
             transforms.Resize(osize, Image.BICUBIC),
             transforms.RandomCrop(opts.image_size),
             transforms.RandomHorizontalFlip(),
+            transforms.ColorJitter(
+                brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+            transforms.RandomAffine(
+                degrees=10, translate=(0.05, 0.05), scale=(0.95, 1.05), shear=5),
+            transforms.RandomPerspective(distortion_scale=0.2, p=0.5),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ])
